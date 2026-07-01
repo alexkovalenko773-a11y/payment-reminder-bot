@@ -4,7 +4,15 @@ import calendar
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from database import add_payment, get_payments, mark_as_paid, is_paid, delete_payment
+from database import (
+    add_payment,
+    get_payments,
+    mark_as_paid,
+    is_paid,
+    delete_payment,
+    get_payment_by_id,
+    update_payment_field,
+)
 from keyboards import main_keyboard, category_keyboard, cancel_keyboard
 
 
@@ -42,6 +50,60 @@ async def handle_delete_button(update: Update, context: ContextTypes.DEFAULT_TYP
     delete_payment(payment_id, user_id)
 
     await query.edit_message_text("🗑 Платёж удалён.")
+
+
+async def handle_edit_select_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    payment_id = int(query.data.split("_")[1])
+    user_id = query.from_user.id
+
+    payment = get_payment_by_id(payment_id, user_id)
+
+    if not payment:
+        await query.edit_message_text("Платёж не найден.")
+        return
+
+    payment_id, name, amount, day, category, link = payment
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📝 Название", callback_data=f"editfield_{payment_id}_name")],
+        [InlineKeyboardButton("💰 Сумма", callback_data=f"editfield_{payment_id}_amount")],
+        [InlineKeyboardButton("📅 День оплаты", callback_data=f"editfield_{payment_id}_day")],
+        [InlineKeyboardButton("📂 Категория", callback_data=f"editfield_{payment_id}_category")],
+        [InlineKeyboardButton("🔗 Ссылка", callback_data=f"editfield_{payment_id}_link")],
+    ])
+
+    await query.edit_message_text(
+        f"✏️ Что изменить?\n\n"
+        f"💳 {name}\n"
+        f"💰 {amount} ₽\n"
+        f"📅 {day} число\n"
+        f"📂 {category}",
+        reply_markup=keyboard
+    )
+
+
+async def handle_edit_field_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    _, payment_id, field = query.data.split("_")
+
+    context.user_data["step"] = "edit_value"
+    context.user_data["edit_payment_id"] = int(payment_id)
+    context.user_data["edit_field"] = field
+
+    field_names = {
+        "name": "новое название",
+        "amount": "новую сумму",
+        "day": "новое число оплаты",
+        "category": "новую категорию",
+        "link": "новую ссылку",
+    }
+
+    await query.edit_message_text(f"Введите {field_names[field]}:")
 
 
 def get_payment_status(payment):
@@ -90,7 +152,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "❌ Отмена":
         context.user_data.clear()
         await update.message.reply_text(
-            "Добавление отменено.",
+            "Действие отменено.",
+            reply_markup=main_keyboard()
+        )
+        return
+
+    if step == "edit_value":
+        payment_id = context.user_data["edit_payment_id"]
+        field = context.user_data["edit_field"]
+        value = text
+
+        if field == "amount":
+            if not text.isdigit():
+                await update.message.reply_text("Сумма должна быть числом. Например: 1600")
+                return
+            value = int(text)
+
+        if field == "day":
+            if not text.isdigit() or not 1 <= int(text) <= 31:
+                await update.message.reply_text("Введите число от 1 до 31.")
+                return
+            value = int(text)
+
+        if field == "link" and text.lower() == "нет":
+            value = ""
+
+        update_payment_field(payment_id, user_id, field, value)
+        context.user_data.clear()
+
+        await update.message.reply_text(
+            "✅ Платёж обновлён.",
             reply_markup=main_keyboard()
         )
         return
@@ -98,10 +189,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if step == "name":
         context.user_data["name"] = text
         context.user_data["step"] = "amount"
-        await update.message.reply_text(
-            "Введите сумму платежа:",
-            reply_markup=cancel_keyboard()
-        )
+        await update.message.reply_text("Введите сумму платежа:", reply_markup=cancel_keyboard())
         return
 
     if step == "amount":
@@ -111,10 +199,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         context.user_data["amount"] = int(text)
         context.user_data["step"] = "day"
-        await update.message.reply_text(
-            "Введите число оплаты. Например: 30",
-            reply_markup=cancel_keyboard()
-        )
+        await update.message.reply_text("Введите число оплаты. Например: 30", reply_markup=cancel_keyboard())
         return
 
     if step == "day":
@@ -124,10 +209,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         context.user_data["day"] = int(text)
         context.user_data["step"] = "category"
-        await update.message.reply_text(
-            "Выберите категорию:",
-            reply_markup=category_keyboard()
-        )
+        await update.message.reply_text("Выберите категорию:", reply_markup=category_keyboard())
         return
 
     if step == "category":
@@ -163,10 +245,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "➕ Добавить платёж":
         context.user_data.clear()
         context.user_data["step"] = "name"
-        await update.message.reply_text(
-            "Введите название платежа:",
-            reply_markup=cancel_keyboard()
-        )
+        await update.message.reply_text("Введите название платежа:", reply_markup=cancel_keyboard())
         return
 
     if text == "📋 Мои платежи":
@@ -184,7 +263,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(message)
         return
 
-    if text == "🗑 Удалить платёж":
+    if "Изменить платёж" in text:
+        payments = get_payments(user_id)
+
+        if not payments:
+            await update.message.reply_text("Изменять нечего — платежей пока нет.")
+            return
+
+        buttons = []
+
+        for payment in payments:
+            payment_id, name, amount, day, category, link = payment
+            buttons.append([
+                InlineKeyboardButton(
+                    f"✏️ {name} — {amount} ₽",
+                    callback_data=f"edit_{payment_id}"
+                )
+            ])
+
+        await update.message.reply_text(
+            "Выберите платёж, который нужно изменить:",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+        return
+
+    if "Удалить платёж" in text:
         payments = get_payments(user_id)
 
         if not payments:
@@ -195,7 +298,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         for payment in payments:
             payment_id, name, amount, day, category, link = payment
-
             buttons.append([
                 InlineKeyboardButton(
                     f"🗑 {name} — {amount} ₽",
@@ -203,11 +305,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             ])
 
-        keyboard = InlineKeyboardMarkup(buttons)
-
         await update.message.reply_text(
             "Выберите платёж, который нужно удалить:",
-            reply_markup=keyboard
+            reply_markup=InlineKeyboardMarkup(buttons)
         )
         return
 
