@@ -130,13 +130,42 @@ def get_payment_status(payment):
     return "future", days_left
 
 
+def sort_by_nearest_payment(payment):
+    status, days_left = get_payment_status(payment)
+
+    if status == "overdue":
+        return days_left
+
+    if status == "today":
+        return 0
+
+    if status == "paid":
+        return 999
+
+    return days_left
+
+
 def format_payment(payment, days_left=None):
     payment_id, name, amount, day, category, link = payment
 
-    text = f"• {name} — {amount} ₽ — {day} число — {category}\n"
+    status, real_days_left = get_payment_status(payment)
 
-    if days_left is not None and days_left < 0:
-        text += f"  🚨 Просрочено на {abs(days_left)} дн.\n"
+    if status == "paid":
+        status_text = "🟢 оплачено"
+    elif status == "overdue":
+        status_text = f"🔴 просрочено на {abs(real_days_left)} дн."
+    elif status == "today":
+        status_text = "🚨 сегодня"
+    elif real_days_left == 1:
+        status_text = "🟡 завтра"
+    else:
+        status_text = f"⚪ через {real_days_left} дн."
+
+    text = (
+        f"• {name} — {amount} ₽\n"
+        f"  📅 {day} число — {category}\n"
+        f"  {status_text}\n"
+    )
 
     if link:
         text += f"  🔗 {link}\n"
@@ -281,6 +310,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("📋 У тебя пока нет платежей.")
             return
 
+        payments = sorted(payments, key=sort_by_nearest_payment)
+
         message = "📋 Мои платежи:\n\n"
 
         for payment in payments:
@@ -329,6 +360,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Изменять нечего — платежей пока нет.")
             return
 
+        payments = sorted(payments, key=sort_by_nearest_payment)
         buttons = []
 
         for payment in payments:
@@ -353,6 +385,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Удалять нечего — платежей пока нет.")
             return
 
+        payments = sorted(payments, key=sort_by_nearest_payment)
         buttons = []
 
         for payment in payments:
@@ -384,6 +417,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⏰ На сегодня платежей нет.")
             return
 
+        today_payments = sorted(today_payments, key=sort_by_nearest_payment)
+
         message = "⏰ Платежи на сегодня:\n\n"
 
         for payment in today_payments:
@@ -405,6 +440,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not overdue_payments:
             await update.message.reply_text("✅ Просроченных платежей нет.")
             return
+
+        overdue_payments = sorted(overdue_payments, key=lambda item: item[1])
 
         message = "❗ Просроченные платежи:\n\n"
 
