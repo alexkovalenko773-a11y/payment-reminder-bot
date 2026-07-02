@@ -1,5 +1,6 @@
 from datetime import date
 import calendar
+import html
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -126,12 +127,12 @@ async def handle_category_button(update: Update, context: ContextTypes.DEFAULT_T
 
     payments = sorted(payments, key=sort_by_nearest_payment)
 
-    message = f"📂 Категория: {category}\n\n"
+    message = f"📂 Категория: {html.escape(category)}\n\n"
 
     for payment in payments:
         message += format_payment(payment)
 
-    await query.edit_message_text(message)
+    await query.edit_message_text(message, parse_mode="HTML")
 
 
 async def handle_delete_category_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -177,9 +178,7 @@ async def handle_edit_select_button(update: Update, context: ContextTypes.DEFAUL
         f"📂 {category}",
         reply_markup=keyboard
     )
-
-
-async def handle_edit_field_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_edit_field_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
@@ -255,14 +254,18 @@ def format_payment(payment, days_left=None):
     else:
         status_text = f"⚪ через {real_days_left} дн."
 
+    safe_name = html.escape(str(name))
+    safe_category = html.escape(str(category))
+    safe_link = html.escape(str(link)) if link else ""
+
     text = (
-        f"• {name} — {amount} ₽\n"
-        f"  📅 {day} число — {category}\n"
+        f"• {safe_name} — {amount} ₽\n"
+        f"  📅 {day} число — {safe_category}\n"
         f"  {status_text}\n"
     )
 
     if link:
-        text += f"  🔗 {link}\n"
+        text += f'  🔗 <a href="{safe_link}">Оплатить</a>\n'
 
     return text + "\n"
 
@@ -358,17 +361,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if step == "name":
         context.user_data["name"] = text
         context.user_data["step"] = "amount"
-        await update.message.reply_text("Введите сумму платежа:", reply_markup=cancel_keyboard())
+        await update.message.reply_text(
+            "Введите сумму платежа:",
+            reply_markup=cancel_keyboard()
+        )
         return
-
-    if step == "amount":
+        if step == "amount":
         if not text.isdigit():
             await update.message.reply_text("Сумма должна быть числом. Например: 1600")
             return
 
         context.user_data["amount"] = int(text)
         context.user_data["step"] = "day"
-        await update.message.reply_text("Введите число оплаты. Например: 30", reply_markup=cancel_keyboard())
+        await update.message.reply_text(
+            "Введите число оплаты. Например: 30",
+            reply_markup=cancel_keyboard()
+        )
         return
 
     if step == "day":
@@ -442,7 +450,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for payment in payments:
             message += format_payment(payment)
 
-        await update.message.reply_text(message)
+        await update.message.reply_text(message, parse_mode="HTML")
         return
 
     if text == "📅 Календарь":
@@ -496,9 +504,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(buttons)
         )
 
-        categories_text = "Управление категориями:"
         await update.message.reply_text(
-            categories_text,
+            "Управление категориями:",
             reply_markup=categories_manage_keyboard()
         )
         return
@@ -611,7 +618,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for payment in today_payments:
             message += format_payment(payment)
 
-        await update.message.reply_text(message)
+        await update.message.reply_text(message, parse_mode="HTML")
         return
 
     if text == "❗ Просроченные":
@@ -633,9 +640,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message = "❗ Просроченные платежи:\n\n"
 
         for payment, days_left in overdue_payments:
-            message += format_payment(payment, days_left)
+            message += format_payment(payment)
 
-        await update.message.reply_text(message)
+        await update.message.reply_text(message, parse_mode="HTML")
         return
 
     await update.message.reply_text("Я пока не понял команду. Нажмите кнопку из меню.")
+    
