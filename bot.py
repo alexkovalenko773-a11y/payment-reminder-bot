@@ -15,6 +15,8 @@ from handlers import (
     handle_delete_button,
     handle_edit_select_button,
     handle_edit_field_button,
+    handle_category_button,
+    handle_delete_category_button,
 )
 from reminders import post_init
 
@@ -28,6 +30,8 @@ app.add_handler(CallbackQueryHandler(handle_paid_button, pattern="^paid:"))
 app.add_handler(CallbackQueryHandler(handle_delete_button, pattern="^delete_"))
 app.add_handler(CallbackQueryHandler(handle_edit_select_button, pattern="^edit_\\d+$"))
 app.add_handler(CallbackQueryHandler(handle_edit_field_button, pattern="^editfield_"))
+app.add_handler(CallbackQueryHandler(handle_category_button, pattern="^category_"))
+app.add_handler(CallbackQueryHandler(handle_delete_category_button, pattern="^deletecategory_"))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 print("✅ Бот запущен...")

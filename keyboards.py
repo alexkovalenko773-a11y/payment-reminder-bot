@@ -6,6 +6,7 @@ def main_keyboard():
         ["➕ Добавить платёж"],
         ["📋 Мои платежи"],
         ["📅 Календарь"],
+        ["📂 Категории"],
         ["✏️ Изменить платёж"],
         ["🗑 Удалить платёж"],
         ["⏰ Сегодня"],
@@ -15,12 +16,25 @@ def main_keyboard():
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
-def category_keyboard():
+def category_keyboard(categories=None):
+    if categories is None:
+        categories = []
+
+    keyboard = []
+
+    for category_id, name in categories:
+        keyboard.append([name])
+
+    keyboard.append(["❌ Отмена"])
+
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+
+def categories_manage_keyboard():
     keyboard = [
-        ["🏠 Дом", "💼 Бизнес"],
-        ["📱 Подписки", "🚗 Авто"],
-        ["➕ Другое"],
-        ["❌ Отмена"],
+        ["➕ Добавить категорию"],
+        ["🗑 Удалить категорию"],
+        ["⬅️ Назад"],
     ]
 
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)

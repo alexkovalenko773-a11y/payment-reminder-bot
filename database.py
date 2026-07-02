@@ -40,6 +40,77 @@ def create_tables():
     )
     """)
 
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS categories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        name TEXT
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def ensure_default_categories(user_id):
+    default_categories = ["🏠 Дом", "💼 Бизнес", "📱 Подписки", "🚗 Авто", "➕ Другое"]
+
+    existing = get_categories(user_id)
+
+    if existing:
+        return
+
+    conn = connect()
+    cursor = conn.cursor()
+
+    for category in default_categories:
+        cursor.execute("""
+        INSERT INTO categories (user_id, name)
+        VALUES (?, ?)
+        """, (user_id, category))
+
+    conn.commit()
+    conn.close()
+
+
+def get_categories(user_id):
+    conn = connect()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT id, name
+    FROM categories
+    WHERE user_id = ?
+    ORDER BY id
+    """, (user_id,))
+
+    result = cursor.fetchall()
+    conn.close()
+    return result
+
+
+def add_category(user_id, name):
+    conn = connect()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    INSERT INTO categories (user_id, name)
+    VALUES (?, ?)
+    """, (user_id, name))
+
+    conn.commit()
+    conn.close()
+
+
+def delete_category(category_id, user_id):
+    conn = connect()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    DELETE FROM categories
+    WHERE id = ? AND user_id = ?
+    """, (category_id, user_id))
+
     conn.commit()
     conn.close()
 
@@ -66,6 +137,21 @@ def get_payments(user_id):
     FROM payments
     WHERE user_id = ?
     """, (user_id,))
+
+    result = cursor.fetchall()
+    conn.close()
+    return result
+
+
+def get_payments_by_category(user_id, category):
+    conn = connect()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT id, name, amount, day, category, link
+    FROM payments
+    WHERE user_id = ? AND category = ?
+    """, (user_id, category))
 
     result = cursor.fetchall()
     conn.close()

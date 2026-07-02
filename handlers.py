@@ -7,66 +7,34 @@ from telegram.ext import ContextTypes
 from database import (
     add_payment,
     get_payments,
+    get_payments_by_category,
     mark_as_paid,
     is_paid,
     delete_payment,
     get_payment_by_id,
     update_payment_field,
+    ensure_default_categories,
+    get_categories,
+    add_category,
+    delete_category,
 )
-from keyboards import main_keyboard, category_keyboard, cancel_keyboard
+
+from keyboards import (
+    main_keyboard,
+    category_keyboard,
+    categories_manage_keyboard,
+    cancel_keyboard,
+)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    payments = get_payments(user_id)
-
-    total = len(payments)
-    today_count = 0
-    overdue_count = 0
-    nearest_payment = None
-    nearest_days = None
-
-    for payment in payments:
-        status, days_left = get_payment_status(payment)
-
-        if status == "today":
-            today_count += 1
-
-        if status == "overdue":
-            overdue_count += 1
-
-        if status not in ["paid"]:
-            if nearest_days is None or days_left < nearest_days:
-                nearest_days = days_left
-                nearest_payment = payment
-
-    message = (
-        "👋 Привет, Алексей!\n\n"
-        "Я помогу не забывать оплачивать счета.\n\n"
-        "📊 Сводка:\n"
-        f"💳 Всего платежей: {total}\n"
-        f"🚨 Сегодня: {today_count}\n"
-        f"🔴 Просрочено: {overdue_count}\n"
-    )
-
-    if nearest_payment:
-        payment_id, name, amount, day, category, link = nearest_payment
-
-        if nearest_days < 0:
-            nearest_text = f"{name} — просрочено на {abs(nearest_days)} дн."
-        elif nearest_days == 0:
-            nearest_text = f"{name} — сегодня"
-        elif nearest_days == 1:
-            nearest_text = f"{name} — завтра"
-        else:
-            nearest_text = f"{name} — через {nearest_days} дн."
-
-        message += f"📅 Ближайший: {nearest_text}\n"
-
-    message += "\nВыберите действие:"
+    ensure_default_categories(user_id)
 
     await update.message.reply_text(
-        message,
+        "👋 Привет, Алексей!\n\n"
+        "Я помогу не забывать оплачивать счета.\n\n"
+        "Выберите действие:",
         reply_markup=main_keyboard()
     )
 
@@ -96,6 +64,41 @@ async def handle_delete_button(update: Update, context: ContextTypes.DEFAULT_TYP
     delete_payment(payment_id, user_id)
 
     await query.edit_message_text("🗑 Платёж удалён.")
+
+
+async def handle_category_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    category = query.data.replace("category_", "")
+
+    payments = get_payments_by_category(user_id, category)
+
+    if not payments:
+        await query.edit_message_text(f"📂 В категории {category} платежей нет.")
+        return
+
+    payments = sorted(payments, key=sort_by_nearest_payment)
+
+    message = f"📂 Категория: {category}\n\n"
+
+    for payment in payments:
+        message += format_payment(payment)
+
+    await query.edit_message_text(message)
+
+
+async def handle_delete_category_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    category_id = int(query.data.split("_")[2])
+    user_id = query.from_user.id
+
+    delete_category(category_id, user_id)
+
+    await query.edit_message_text("🗑 Категория удалена.")
 
 
 async def handle_edit_select_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -250,10 +253,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     step = context.user_data.get("step")
 
+    ensure_default_categories(user_id)
+
     if text == "❌ Отмена":
         context.user_data.clear()
         await update.message.reply_text(
             "Действие отменено.",
+            reply_markup=main_keyboard()
+        )
+        return
+
+    if text == "⬅️ Назад":
+        context.user_data.clear()
+        await update.message.reply_text(
+            "Главное меню.",
+            reply_markup=main_keyboard()
+        )
+        return
+
+    if step == "add_category":
+        add_category(user_id, text)
+        context.user_data.clear()
+
+        await update.message.reply_text(
+            f"✅ Категория добавлена: {text}",
             reply_markup=main_keyboard()
         )
         return
@@ -310,12 +333,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         context.user_data["day"] = int(text)
         context.user_data["step"] = "category"
-        await update.message.reply_text("Выберите категорию:", reply_markup=category_keyboard())
+
+        categories = get_categories(user_id)
+
+        await update.message.reply_text(
+            "Выберите категорию:",
+            reply_markup=category_keyboard(categories)
+        )
         return
 
     if step == "category":
         context.user_data["category"] = text
         context.user_data["step"] = "link"
+
         await update.message.reply_text(
             "Пришлите ссылку на личный кабинет.\n\n"
             "Если ссылки нет, напишите: нет",
@@ -346,7 +376,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "➕ Добавить платёж":
         context.user_data.clear()
         context.user_data["step"] = "name"
-        await update.message.reply_text("Введите название платежа:", reply_markup=cancel_keyboard())
+
+        await update.message.reply_text(
+            "Введите название платежа:",
+            reply_markup=cancel_keyboard()
+        )
         return
 
     if text == "📋 Мои платежи":
@@ -399,6 +433,64 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(message)
         return
 
+    if text == "📂 Категории":
+        categories = get_categories(user_id)
+
+        buttons = []
+
+        for category_id, name in categories:
+            buttons.append([
+                InlineKeyboardButton(
+                    name,
+                    callback_data=f"category_{name}"
+                )
+            ])
+
+        await update.message.reply_text(
+            "📂 Выберите категорию:",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+
+        categories_text = "Управление категориями:"
+        await update.message.reply_text(
+            categories_text,
+            reply_markup=categories_manage_keyboard()
+        )
+        return
+
+    if text == "➕ Добавить категорию":
+        context.user_data.clear()
+        context.user_data["step"] = "add_category"
+
+        await update.message.reply_text(
+            "Введите название новой категории:",
+            reply_markup=cancel_keyboard()
+        )
+        return
+
+    if text == "🗑 Удалить категорию":
+        categories = get_categories(user_id)
+
+        if not categories:
+            await update.message.reply_text("Категорий пока нет.")
+            return
+
+        buttons = []
+
+        for category_id, name in categories:
+            buttons.append([
+                InlineKeyboardButton(
+                    f"🗑 {name}",
+                    callback_data=f"deletecategory_{category_id}"
+                )
+            ])
+
+        await update.message.reply_text(
+            "Выберите категорию для удаления:",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+        return
+
     if "Изменить платёж" in text:
         payments = get_payments(user_id)
 
@@ -407,10 +499,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         payments = sorted(payments, key=sort_by_nearest_payment)
+
         buttons = []
 
         for payment in payments:
             payment_id, name, amount, day, category, link = payment
+
             buttons.append([
                 InlineKeyboardButton(
                     f"✏️ {name} — {amount} ₽",
@@ -432,10 +526,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         payments = sorted(payments, key=sort_by_nearest_payment)
+
         buttons = []
 
         for payment in payments:
             payment_id, name, amount, day, category, link = payment
+
             buttons.append([
                 InlineKeyboardButton(
                     f"🗑 {name} — {amount} ₽",
