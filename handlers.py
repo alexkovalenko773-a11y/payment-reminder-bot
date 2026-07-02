@@ -144,6 +144,32 @@ def format_payment(payment, days_left=None):
     return text + "\n"
 
 
+def format_calendar_payment(payment):
+    payment_id, name, amount, day, category, link = payment
+
+    today = date.today()
+    current_month = today.strftime("%Y-%m")
+    status, days_left = get_payment_status(payment)
+
+    if is_paid(payment_id, current_month):
+        emoji = "🟢"
+        status_text = "оплачено"
+    elif status == "overdue":
+        emoji = "🔴"
+        status_text = f"просрочено {abs(days_left)} дн."
+    elif status == "today":
+        emoji = "🚨"
+        status_text = "сегодня"
+    elif days_left == 1:
+        emoji = "🟡"
+        status_text = "завтра"
+    else:
+        emoji = "⚪"
+        status_text = f"через {days_left} дн."
+
+    return f"{emoji} {day:02d} — {name} — {amount} ₽ — {status_text}\n"
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user_id = update.message.from_user.id
@@ -259,6 +285,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         for payment in payments:
             message += format_payment(payment)
+
+        await update.message.reply_text(message)
+        return
+
+    if text == "📅 Календарь":
+        payments = get_payments(user_id)
+
+        if not payments:
+            await update.message.reply_text("📅 В календаре пока нет платежей.")
+            return
+
+        month_names = {
+            1: "Январь",
+            2: "Февраль",
+            3: "Март",
+            4: "Апрель",
+            5: "Май",
+            6: "Июнь",
+            7: "Июль",
+            8: "Август",
+            9: "Сентябрь",
+            10: "Октябрь",
+            11: "Ноябрь",
+            12: "Декабрь",
+        }
+
+        today = date.today()
+        message = f"📅 {month_names[today.month]} {today.year}\n\n"
+
+        payments = sorted(payments, key=lambda p: p[3])
+
+        for payment in payments:
+            message += format_calendar_payment(payment)
 
         await update.message.reply_text(message)
         return
