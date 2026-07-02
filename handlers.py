@@ -31,10 +31,55 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     ensure_default_categories(user_id)
 
-    await update.message.reply_text(
+    payments = get_payments(user_id)
+
+    total = len(payments)
+    today_count = 0
+    overdue_count = 0
+    nearest_payment = None
+    nearest_days = None
+
+    for payment in payments:
+        status, days_left = get_payment_status(payment)
+
+        if status == "today":
+            today_count += 1
+
+        if status == "overdue":
+            overdue_count += 1
+
+        if status != "paid":
+            if nearest_days is None or days_left < nearest_days:
+                nearest_days = days_left
+                nearest_payment = payment
+
+    message = (
         "👋 Привет, Алексей!\n\n"
         "Я помогу не забывать оплачивать счета.\n\n"
-        "Выберите действие:",
+        "📊 Сводка:\n"
+        f"💳 Всего платежей: {total}\n"
+        f"🚨 Сегодня: {today_count}\n"
+        f"🔴 Просрочено: {overdue_count}\n"
+    )
+
+    if nearest_payment:
+        payment_id, name, amount, day, category, link = nearest_payment
+
+        if nearest_days < 0:
+            nearest_text = f"{name} — просрочено на {abs(nearest_days)} дн."
+        elif nearest_days == 0:
+            nearest_text = f"{name} — сегодня"
+        elif nearest_days == 1:
+            nearest_text = f"{name} — завтра"
+        else:
+            nearest_text = f"{name} — через {nearest_days} дн."
+
+        message += f"📅 Ближайший: {nearest_text}\n"
+
+    message += "\nВыберите действие:"
+
+    await update.message.reply_text(
+        message,
         reply_markup=main_keyboard()
     )
 
@@ -93,7 +138,7 @@ async def handle_delete_category_button(update: Update, context: ContextTypes.DE
     query = update.callback_query
     await query.answer()
 
-    category_id = int(query.data.split("_")[2])
+    category_id = int(query.data.split("_")[1])
     user_id = query.from_user.id
 
     delete_category(category_id, user_id)
