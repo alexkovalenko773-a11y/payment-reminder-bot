@@ -26,12 +26,17 @@ create_tables()
 app = Application.builder().token(TOKEN).post_init(post_init).build()
 
 app.add_handler(CommandHandler("start", start))
+
 app.add_handler(CallbackQueryHandler(handle_paid_button, pattern="^paid:"))
+
+app.add_handler(CallbackQueryHandler(handle_delete_category_button, pattern="^deletecategory_"))
 app.add_handler(CallbackQueryHandler(handle_delete_button, pattern="^delete_"))
+
 app.add_handler(CallbackQueryHandler(handle_edit_select_button, pattern="^edit_\\d+$"))
 app.add_handler(CallbackQueryHandler(handle_edit_field_button, pattern="^editfield_"))
+
 app.add_handler(CallbackQueryHandler(handle_category_button, pattern="^category_"))
-app.add_handler(CallbackQueryHandler(handle_delete_category_button, pattern="^deletecategory_"))
+
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 print("✅ Бот запущен...")
