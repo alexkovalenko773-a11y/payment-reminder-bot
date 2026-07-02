@@ -17,10 +17,56 @@ from keyboards import main_keyboard, category_keyboard, cancel_keyboard
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+    user_id = update.message.from_user.id
+    payments = get_payments(user_id)
+
+    total = len(payments)
+    today_count = 0
+    overdue_count = 0
+    nearest_payment = None
+    nearest_days = None
+
+    for payment in payments:
+        status, days_left = get_payment_status(payment)
+
+        if status == "today":
+            today_count += 1
+
+        if status == "overdue":
+            overdue_count += 1
+
+        if status not in ["paid"]:
+            if nearest_days is None or days_left < nearest_days:
+                nearest_days = days_left
+                nearest_payment = payment
+
+    message = (
         "👋 Привет, Алексей!\n\n"
         "Я помогу не забывать оплачивать счета.\n\n"
-        "Выберите действие:",
+        "📊 Сводка:\n"
+        f"💳 Всего платежей: {total}\n"
+        f"🚨 Сегодня: {today_count}\n"
+        f"🔴 Просрочено: {overdue_count}\n"
+    )
+
+    if nearest_payment:
+        payment_id, name, amount, day, category, link = nearest_payment
+
+        if nearest_days < 0:
+            nearest_text = f"{name} — просрочено на {abs(nearest_days)} дн."
+        elif nearest_days == 0:
+            nearest_text = f"{name} — сегодня"
+        elif nearest_days == 1:
+            nearest_text = f"{name} — завтра"
+        else:
+            nearest_text = f"{name} — через {nearest_days} дн."
+
+        message += f"📅 Ближайший: {nearest_text}\n"
+
+    message += "\nВыберите действие:"
+
+    await update.message.reply_text(
+        message,
         reply_markup=main_keyboard()
     )
 
