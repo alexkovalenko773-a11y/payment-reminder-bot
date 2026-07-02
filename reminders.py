@@ -12,12 +12,61 @@ from database import (
 )
 
 
-def make_payment_buttons(payment_id, link):
+REMIND_DAYS = [3, 1, 0]
+
+
+def prepare_link(link):
+    if not link:
+        return ""
+
+    link = str(link).strip()
+
+    if not link:
+        return ""
+
+    if not link.startswith(("http://", "https://")):
+        link = "https://" + link
+
+    return link
+
+
+def get_days_left(day):
+    today = date.today()
+
+    last_day = calendar.monthrange(today.year, today.month)[1]
+    real_day = min(day, last_day)
+
+    due_date = date(today.year, today.month, real_day)
+    return (due_date - today).days
+
+
+def make_reminder_text(name, amount, day, category, days_left):
+    if days_left == 3:
+        title = "🔔 Через 3 дня нужно оплатить:"
+    elif days_left == 1:
+        title = "🟡 Завтра нужно оплатить:"
+    elif days_left == 0:
+        title = "🚨 Сегодня нужно оплатить:"
+    else:
+        title = "🔔 Напоминание об оплате:"
+
+    return (
+        f"{title}\n\n"
+        f"💳 {name}\n"
+        f"💰 {amount} ₽\n"
+        f"📅 {day} число\n"
+        f"📂 {category}"
+    )
+
+
+def make_reminder_keyboard(payment_id, link):
     buttons = []
 
-    if link:
+    payment_link = prepare_link(link)
+
+    if payment_link:
         buttons.append([
-            InlineKeyboardButton("🔗 Открыть ссылку", url=link)
+            InlineKeyboardButton("🔗 Оплатить", url=payment_link)
         ])
 
     buttons.append([
@@ -30,6 +79,7 @@ def make_payment_buttons(payment_id, link):
 async def reminder_loop(app):
     while True:
         today = date.today()
+        today_str = today.isoformat()
         current_month = today.strftime("%Y-%m")
 
         payments = get_all_payments()
@@ -40,76 +90,41 @@ async def reminder_loop(app):
             if is_paid(payment_id, current_month):
                 continue
 
-            last_day = calendar.monthrange(today.year, today.month)[1]
-            real_day = min(day, last_day)
+            days_left = get_days_left(day)
 
-            due_date = date(today.year, today.month, real_day)
-            days_left = (due_date - today).days
+            if days_left not in REMIND_DAYS:
+                continue
 
-            reminder_type = None
-            text = None
+            reminder_type = f"{days_left}_days"
 
-            if days_left == 7:
-                reminder_type = "before_7_days"
-                text = (
-                    "🔔 Скоро платёж\n\n"
-                    f"💳 {name}\n"
-                    f"💰 {amount} ₽\n"
-                    f"📅 Оплатить через 7 дней\n"
-                    f"📂 {category}"
+            if reminder_was_sent(payment_id, today_str, reminder_type):
+                continue
+
+            message = make_reminder_text(
+                name=name,
+                amount=amount,
+                day=day,
+                category=category,
+                days_left=days_left
+            )
+
+            keyboard = make_reminder_keyboard(payment_id, link)
+
+            try:
+                await app.bot.send_message(
+                    chat_id=user_id,
+                    text=message,
+                    reply_markup=keyboard,
+                    disable_web_page_preview=True
                 )
 
-            elif days_left == 3:
-                reminder_type = "before_3_days"
-                text = (
-                    "🔔 Напоминание о платеже\n\n"
-                    f"💳 {name}\n"
-                    f"💰 {amount} ₽\n"
-                    f"📅 Оплатить через 3 дня\n"
-                    f"📂 {category}"
-                )
+                save_reminder(payment_id, today_str, reminder_type)
 
-            elif days_left == 1:
-                reminder_type = "before_1_day"
-                text = (
-                    "⚠️ Завтра платёж\n\n"
-                    f"💳 {name}\n"
-                    f"💰 {amount} ₽\n"
-                    f"📂 {category}"
-                )
+            except Exception as e:
+                print(f"Ошибка отправки напоминания: {e}")
 
-            elif days_left == 0:
-                reminder_type = "today"
-                text = (
-                    "🚨 Сегодня нужно оплатить\n\n"
-                    f"💳 {name}\n"
-                    f"💰 {amount} ₽\n"
-                    f"📂 {category}"
-                )
-
-            elif days_left < 0:
-                reminder_type = "overdue"
-                text = (
-                    f"🔴 Платёж просрочен на {abs(days_left)} дн.\n\n"
-                    f"💳 {name}\n"
-                    f"💰 {amount} ₽\n"
-                    f"📂 {category}"
-                )
-
-            if reminder_type:
-                reminder_date = today.isoformat()
-
-                if not reminder_was_sent(payment_id, reminder_date, reminder_type):
-                    await app.bot.send_message(
-                        chat_id=user_id,
-                        text=text,
-                        reply_markup=make_payment_buttons(payment_id, link)
-                    )
-
-                    save_reminder(payment_id, reminder_date, reminder_type)
-
-        await asyncio.sleep(3600)
+        await asyncio.sleep(60 * 60)
 
 
 async def post_init(app):
-    asyncio.create_task(reminder_loop(app))
+    app.create_task(reminder_loop(app))
